@@ -53,3 +53,13 @@ services:
       - auth
       - catalog-1
       - catalog-2
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq_br
+    ports:
+      - "5672:5672"   # Порт взаимодействия кода с брокером
+      - "15672:15672" # Порт веб-админки RabbitMQ в браузере
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
