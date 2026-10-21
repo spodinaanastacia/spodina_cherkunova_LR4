@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+  consul:
+    image: hashicorp/consul:1.15
+    container_name: consul
+    ports:
+      - "8500:8500"
+    command: "agent -dev -client=0.0.0.0"
+
+  auth:
+    build: ./auth_service
+    dns: 8.8.8.8  # <--- ДОБАВИТЬ СЮДА
+    container_name: auth
+    environment:
+      - PORT=8000
+      - INSTANCE_NAME=auth-service
+      - CONSUL_URL=http://consul:8500/v1/agent/service
+    depends_on:
+      - consul
+
+  catalog-1:
+    build: ./catalog_service
+    dns: 8.8.8.8  # <--- ДОБАВИТЬ СЮДА
+    container_name: catalog-1
+    environment:
+      - PORT=8001
+      - INSTANCE_NAME=catalog-1
+      - CONSUL_URL=http://consul:8500/v1/agent/service
+    depends_on:
+      - consul
+
+  catalog-2:
+    build: ./catalog_service
+    dns: 8.8.8.8  # <--- ДОБАВИТЬ СЮДА
+    container_name: catalog-2
+    environment:
+      - PORT=8002
+      - INSTANCE_NAME=catalog-2
+      - CONSUL_URL=http://consul:8500/v1/agent/service
+    depends_on:
+      - consul
+
+  nginx:
+    image: nginx:alpine
+    container_name: nginx
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "8080:80"
+
+    depends_on:
+      - auth
+      - catalog-1
+      - catalog-2
