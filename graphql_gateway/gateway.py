@@ -123,7 +123,7 @@ async def create_order(payload: CreateOrderRESTSchema):
     # Публикация события в RabbitMQ обменник
     connection, channel = await get_rabbitmq_channel()
     exchange = await channel.get_exchange("saga_exchange")
-    
+    #Топик (строковый ключ маршрутизации). Наш шлюз не отправляет сообщение в конкретную коробку-очередь. Он отправляет его в абстрактный обменник saga_exchange и маркирует этой темой.
     await exchange.publish(
         aio_pika.Message(body=json.dumps(new_order).encode(), content_type="application/json"),
         routing_key="order.events.created"
