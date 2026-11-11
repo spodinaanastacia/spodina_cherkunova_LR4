@@ -9,16 +9,51 @@ services:
       - "8500:8500"
     command: "agent -dev -client=0.0.0.0"
 
-  # 2. Брокер сообщений (RabbitMQ)
+  # 2. Брокер сообщений (RabbitMQ из прошлых лаб)
   rabbitmq:
     image: rabbitmq:3-management
     container_name: rabbitmq_br
     ports:
-      - "5672:5672"   # Порт взаимодействия кода с брокером
-      - "15672:15672" # Порт веб-админки
+      - "5672:5672"
+      - "15672:15672"
     environment:
       RABBITMQ_DEFAULT_USER: guest
       RABBITMQ_DEFAULT_PASS: guest
+
+  # --- НОВОЕ: Брокер сообщений Apache Kafka (ЛР6) ---
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: kafka
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT'
+      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092'
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_PROCESS_ROLES: 'broker,controller'
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka:29093'
+      KAFKA_LISTENERS: 'PLAINTEXT://0.0.0.0:29092,CONTROLLER://0.0.0.0:29093,PLAINTEXT_HOST://0.0.0.0:9092'
+      KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
+      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
+      KAFKA_LOG_DIRS: '/tmp/kraft-combined-logs'
+      CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
+
+  # --- НОВОЕ: Панель управления Kafka UI (ЛР6) ---
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    ports:
+      - "8085:8080" # Будет доступна на http://localhost:8085
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      DYNAMIC_CONFIG_ENABLED: 'true'
+    depends_on:
+      - kafka
 
   # 3. Сервис авторизации
   auth:
@@ -56,34 +91,74 @@ services:
     depends_on:
       - consul
 
-  # 6. API Шлюз (Анастасия Черкунова: gRPC-клиент + Circuit Breaker)
+  # --- НОВОЕ: Сервис Заказов (Write Side — CQRS + Event Store) ---
+  order_service:
+    build: ./order_service
+    dns: 8.8.8.8
+    container_name: order_service
+    ports:
+      - "8005:8005"
+    environment:
+      - PORT=8005
+      - INSTANCE_NAME=order-service
+      - CONSUL_URL=http://consul:8500/v1/agent/service
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+    volumes:
+      - ./order_service:/app
+    depends_on:
+      - consul
+      - kafka
+
+  # --- НОВОЕ: Сервис Аналитики и Read-модели (Read Side) ---
+  analytics_service:
+    build: ./analytics_service
+    dns: 8.8.8.8
+    container_name: analytics_service
+    ports:
+      - "8006:8006"
+    environment:
+      - PORT=8006
+      - INSTANCE_NAME=analytics-service
+      - CONSUL_URL=http://consul:8500/v1/agent/service
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+    volumes:
+      - ./analytics_service:/app
+    depends_on:
+      - consul
+      - kafka
+
+  # 6. API Шлюз
   graphql_gateway:
     build: ./graphql_gateway
     dns: 8.8.8.8
     container_name: graphql_gateway
+    ports:
+      - "8003:8003"
     environment:
       - PORT=8003
       - INSTANCE_NAME=graphql-gateway
       - CONSUL_URL=http://consul:8500/v1/agent/service
     volumes:
       - ./graphql_gateway:/app
+      - ./payment.proto:/app/payment.proto
     depends_on:
       - consul
       - payment_service
 
-  # 7. Сервис оплаты (Анастасия Сподина: gRPC-сервер с симуляцией сбоя)
+  # 7. Сервис оплаты
   payment_service:
     build: ./payment_service
     dns: 8.8.8.8
     container_name: payment_service
     ports:
-      - "50051:50051" # Пробрасываем порт gRPC взаимодействия наружу/внутри
+      - "50051:50051"
     environment:
       - PORT=50051
       - INSTANCE_NAME=payment-service
       - CONSUL_URL=http://consul:8500/v1/agent/service
     volumes:
       - ./payment_service:/app
+      - ./payment.proto:/app/payment.proto
     depends_on:
       - consul
 
@@ -102,7 +177,7 @@ services:
       - consul
       - rabbitmq
 
-  # 9. Балансировщик Nginx (Входная точка)
+  # 9. Балансировщик Nginx
   nginx:
     image: nginx:alpine
     container_name: nginx
@@ -115,3 +190,5 @@ services:
       - catalog-1
       - catalog-2
       - graphql_gateway
+      - order_service
+      - analytics_service

@@ -1,3 +1,5 @@
-pybreaker==1.0.1
-grpcio==1.60.0
-grpcio-tools==1.60.0
+fastapi
+uvicorn
+pybreaker
+grpcio
+grpcio-tools
